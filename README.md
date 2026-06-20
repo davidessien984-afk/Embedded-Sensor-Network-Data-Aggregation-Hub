@@ -29,7 +29,7 @@ Repository: https://github.com/ikezuefrank/Embedded-Sensor-Network-Data-Aggregat
 | 11 | Ibukunoluwa | Oluwanifemi Favour | CPE/2023/1053 | Ibuksmonii40|
 | 12 | Ikezue | Munachukwu Franknoris | CPE/2023/1054 | ikezuefrank |
 | 13 | Ilukoyenikan | Adeolu Joseph | CPE/2023/1055 | — |
-| 14 | Istifanus | Godspower Joseph | CPE/2023/1056 |  | Istifanus02 |
+| 14 | Istifanus | Godspower Joseph | CPE/2023/1056 | Istifanus02 |
 | 15 | Iwuchukwu | Miracle Oluebube | CPE/2023/1057 | — |
 
 ---
