@@ -25,7 +25,7 @@ Repository: https://github.com/ikezuefrank/Embedded-Sensor-Network-Data-Aggregat
 | 7 | Falaiye | Tobiloba Kayode | CPE/2023/1049 | FalaiyeAdesina |
 | 8 | Fasuyi | Kingsley Oluwatosin | CPE/2023/1050 |  |kingsley2244
 | 9 | Fele | Olamide Micheal | CPE/2023/1051 |  Olliboi-01 |
-| 10 | Fowowe | Stephen Oluwamodimu | CPE/2023/1052 | — |jerrysteve207|
+| 10 | Fowowe | Stephen Oluwamodimu | CPE/2023/1052 | jerrysteve207 |
 | 11 | Ibukunoluwa | Oluwanifemi Favour | CPE/2023/1053 | Ibuksmonii40|
 | 12 | Ikezue | Munachukwu Franknoris | CPE/2023/1054 | ikezuefrank |
 | 13 | Ilukoyenikan | Adeolu Joseph | CPE/2023/1055 | — |
