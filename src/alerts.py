@@ -1,9 +1,6 @@
-"""Alerts and the rules that raise them.
 
-An AlertRule watches one sensor and fires an Alert when a reading leaves its
-[min, max] band. How badly it leaves the band decides the severity. Alerts
-sort by severity so they can be dropped straight into a priority queue.
-"""
+
+
 
 
 class Alert:
