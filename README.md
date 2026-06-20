@@ -31,7 +31,7 @@ tested, documented OOP core that exercises classes, encapsulation, inheritance
 | 1 | Emans | Gift Oghenemine | CPE/2023/1043 | emansgift197-star |
 | 2 | Emmanuel | Faith Aanuoluwa | CPE/2023/1044 | EmpressFaith |
 | 3 | Esan | Samuel Moyinoluwa | CPE/2023/1045 | Sunnie360 |
-| 4 | Essien | David Uwem | CPE/2023/1046 | — |
+| 4 | Essien | David Uwem | CPE/2023/1046 | David Essien|
 | 5 | Fakorede | Chinedum Temidayo | CPE/2023/1047 | fakoredechi-byte |
 | 6 | Falade | Olamide Ebenezer | CPE/2023/1048 | olamidefalade71-max |
 | 7 | Falaiye | Tobiloba Kayode | CPE/2023/1049 | FalaiyeAdeshina |
