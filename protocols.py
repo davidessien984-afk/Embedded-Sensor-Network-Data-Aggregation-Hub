@@ -1,126 +1,150 @@
-"""src/protocols.py
-
-CANBusProtocol — simulated CAN Bus client.
-
-NOTE: This file contains ONLY the CANBusProtocol class, which is one of three
-concrete CommunicationProtocol subclasses being built in parallel by teammates
-(MQTTProtocol, ModbusProtocol, CANBusProtocol). When merging, all three classes
-plus the CommunicationProtocol ABC belong together in a single src/protocols.py.
+"""STUB for local testing only — the real CommunicationProtocol ABC is owned by
+Falaiye Tobiloba Kayode. Replace this with their file when merging branches.
+This stub mirrors the documented interface exactly so MQTTProtocol can be
+developed and tested in isolation.
 """
+from abc import ABC, abstractmethod
+
+
+class CommunicationProtocol(ABC):
+    """Abstract base class modelling a simulated communication protocol layer.
+
+    No real sockets or networking are used anywhere in this project; all
+    subclasses simulate connection, send, and receive behaviour in-memory.
+    """
+
+    def __init__(self) -> None:
+        self._is_connected: bool = False
+
+    @abstractmethod
+    def connect(self) -> bool:
+        """Establish a simulated connection. Returns True on success."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def send(self, data: bytes) -> bool:
+        """Send data over the simulated link. Returns True on success."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def receive(self, max_bytes: int) -> bytes:
+        """Receive up to max_bytes from the simulated link."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def disconnect(self) -> None:
+        """Tear down the simulated connection."""
+        raise NotImplementedError
+
+    @property
+    def is_connected(self) -> bool:
+        """bool: Whether the protocol currently reports an active connection."""
+        return self._is_connected
+
+
 import random
 
-# TODO: swap to real CommunicationProtocol import from src.protocols after merge
-from src.protocols_base_stub import CommunicationProtocol
 from src.exceptions import CommunicationTimeoutError
 
 
-class CANBusProtocol(CommunicationProtocol):
-    """Simulated CAN Bus (Controller Area Network) communication client.
+class MQTTProtocol(CommunicationProtocol):
+    """A simulated MQTT client.
 
-    This class models the behavior of a CAN Bus interface used in industrial
-    and automotive embedded systems, WITHOUT touching real hardware or sockets.
-    All connection, send, and receive operations are simulated using random
-    success/failure to mimic the unreliability of a real embedded bus, which
-    is useful for exercising the AggregationHub's error-handling paths.
+    This class models the basic lifecycle of an MQTT publisher/subscriber
+    (connect, publish/send, receive, disconnect) without opening any real
+    network sockets or depending on an external MQTT library. It is intended
+    purely to demonstrate polymorphism alongside ModbusProtocol and
+    CANBusProtocol under the shared CommunicationProtocol interface.
 
     Attributes:
-        bus_channel (str): The simulated CAN interface name (e.g. "can0").
-        bitrate (int): The simulated bus bitrate in bits per second.
+        broker_host (str): Hostname of the simulated MQTT broker.
+        port (int): Port of the simulated MQTT broker.
+        client_id (str): Identifier this simulated client publishes under.
     """
 
-    #: Probability (0.0-1.0) that connect() randomly simulates a failure.
-    _CONNECT_FAILURE_RATE = 0.05
+    #: Probability (0.0-1.0) that a connect() attempt simulates a failure.
+    _CONNECT_FAILURE_PROBABILITY = 0.05
 
-    def __init__(self, bus_channel: str = "can0", bitrate: int = 500000):
-        """Initialize a simulated CAN Bus protocol handler.
+    def __init__(self, broker_host: str = "localhost", port: int = 1883,
+                 client_id: str = ""):
+        """Initialize a simulated MQTT client.
 
         Args:
-            bus_channel: Name of the simulated CAN interface (default "can0").
-            bitrate: Simulated bus bitrate in bits per second (default 500000).
+            broker_host: Hostname of the simulated broker.
+            port: Port of the simulated broker.
+            client_id: Identifier for this client. If empty, an id is
+                generated automatically.
         """
         super().__init__()
-        self.bus_channel = bus_channel
-        self.bitrate = bitrate
+        self.broker_host = broker_host
+        self.port = port
+        self.client_id = client_id or f"mqtt-client-{random.randint(1000, 9999)}"
 
     def connect(self) -> bool:
-        """Simulate establishing a connection to the CAN bus.
-
-        Sets is_connected to True on success. With low probability, simulates
-        a bus initialization failure by raising CommunicationTimeoutError
-        instead (mimics a real CAN controller failing to reach bus-on state).
+        """Simulate connecting to the MQTT broker.
 
         Returns:
             bool: True if the simulated connection succeeded.
 
         Raises:
-            CommunicationTimeoutError: If the simulated connection attempt fails.
+            CommunicationTimeoutError: Raised with low probability to
+                simulate a broker that is unreachable or slow to respond.
         """
-        if random.random() < self._CONNECT_FAILURE_RATE:
+        if random.random() < self._CONNECT_FAILURE_PROBABILITY:
             raise CommunicationTimeoutError(
-                self.bus_channel,
-                f"Failed to reach bus-on state on {self.bus_channel} "
-                f"at {self.bitrate} bps",
+                self.client_id,
+                f"Timed out connecting to broker {self.broker_host}:{self.port}",
             )
         self._is_connected = True
         return True
 
     def send(self, data: bytes) -> bool:
-        """Simulate sending a CAN frame.
+        """Simulate publishing a message to the broker.
 
         Args:
-            data: Raw payload bytes to send (a real CAN frame would be capped
-                at 8 data bytes per classic frame, but this is not enforced
-                here since the simulation operates at a higher abstraction
-                level).
+            data: The payload to publish.
 
         Returns:
-            bool: True if the simulated send succeeded.
+            bool: True if the simulated publish succeeded.
 
         Raises:
-            CommunicationTimeoutError: If not currently connected.
+            CommunicationTimeoutError: If called while not connected.
         """
         if not self.is_connected:
             raise CommunicationTimeoutError(
-                self.bus_channel,
-                "Cannot send CAN frame: bus is not connected",
+                self.client_id, "send() called while not connected"
             )
         return True
 
     def receive(self, max_bytes: int) -> bytes:
-        """Simulate receiving a CAN frame payload.
+        """Simulate receiving a subscribed message from the broker.
 
         Args:
-            max_bytes: Maximum number of bytes to simulate receiving.
+            max_bytes: Maximum number of bytes to return.
 
         Returns:
-            bytes: A simulated CAN frame payload, truncated to max_bytes.
+            bytes: A simulated payload, truncated to max_bytes.
 
         Raises:
-            CommunicationTimeoutError: If not currently connected.
+            CommunicationTimeoutError: If called while not connected.
         """
         if not self.is_connected:
             raise CommunicationTimeoutError(
-                self.bus_channel,
-                "Cannot receive: bus is not connected",
+                self.client_id, "receive() called while not connected"
             )
-        simulated_payload = b"\xde\xad\xbe\xef\x00\x01\x02\x03"
+        simulated_payload = b"mqtt-simulated-payload"
         return simulated_payload[:max_bytes]
 
     def disconnect(self) -> None:
-        """Simulate tearing down the CAN bus connection.
-
-        Sets is_connected to False. Safe to call even if already disconnected.
-        """
+        """Simulate disconnecting from the broker."""
         self._is_connected = False
 
     def __str__(self) -> str:
-        """Return a human-readable summary of the CAN bus connection."""
-        state = "connected" if self.is_connected else "disconnected"
-        return f"CANBusProtocol({self.bus_channel} @ {self.bitrate}bps, {state})"
+        status = "connected" if self.is_connected else "disconnected"
+        return f"MQTTProtocol({self.client_id} @ {self.broker_host}:{self.port}, {status})"
 
     def __repr__(self) -> str:
-        """Return an unambiguous representation for debugging."""
         return (
-            f"CANBusProtocol(bus_channel={self.bus_channel!r}, "
-            f"bitrate={self.bitrate!r}, is_connected={self.is_connected!r})"
+            f"MQTTProtocol(broker_host={self.broker_host!r}, port={self.port!r}, "
+            f"client_id={self.client_id!r}, is_connected={self.is_connected!r})"
         )
