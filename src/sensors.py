@@ -1,8 +1,10 @@
-"""
-src/sensors.py
+"""Sensor nodes: the abstract base, the five real sensors, and a wireless one.
 
-Contains the abstract base class SensorNode and the concrete FlowRateNode
-implementation for the Embedded Sensor Network Data Aggregation Hub.
+SensorNode is an ABC - it handles the shared stuff (id validation, calibration,
+self-test) and leaves sensor_id and read() for subclasses. The five concrete
+nodes only differ in their range, unit and alarm threshold, so the actual
+read() simulation lives once in the base as a helper. WirelessSensorNode mixes
+in a battery using cooperative multiple inheritance.
 """
 
 import re
@@ -10,235 +12,248 @@ import random
 from abc import ABC, abstractmethod
 from datetime import datetime
 
-from src.exceptions import CalibrationError, SensorOfflineError
 from src.readings import SensorReading
+from src.exceptions import CalibrationError, SensorOfflineError
+from src.alerts import Alert
 
 
 class SensorNode(ABC):
-    """
-    Abstract base class for all sensor nodes in the aggregation network.
+    """Common behaviour for every sensor in the network.
 
-    Subclasses must implement the `sensor_id` property and the `read()` method.
-    Provides shared logic for calibration, validation, and self-testing.
-
-    Args:
-        sensor_id (str): Unique sensor identifier matching pattern SN-TTTT-NN.
-        location (str): Physical location description of the sensor.
-        unit (str): Measurement unit string (e.g. "L/min", "°C").
-        safe_min (float): Minimum value of the safe operating range.
-        safe_max (float): Maximum value of the safe operating range.
-        calibration_offset (float): Initial calibration offset. Defaults to 0.0.
-
-    Raises:
-        ValueError: If sensor_id does not match the required pattern SN-TTTT-NN.
+    Subclasses provide a sensor_id (it's an abstract property) and a read().
+    Everything else - id-format checks, the validated calibration offset, the
+    self-test - is shared here.
     """
 
-    _ID_PATTERN = re.compile(r'^SN-[A-Z]{4}-\d{2}$')
+    # SN-TTTT-NN : 4-letter type code, 2-digit number, e.g. SN-TEMP-01
+    _ID_PATTERN = re.compile(r"^SN-[A-Z]{4}-\d{2}$")
 
-    def __init__(
-        self,
-        sensor_id: str,
-        location: str,
-        unit: str,
-        safe_min: float,
-        safe_max: float,
-        calibration_offset: float = 0.0,
-    ) -> None:
+    def __init__(self, sensor_id: str, location: str, unit: str,
+                 safe_min: float, safe_max: float,
+                 calibration_offset: float = 0.0, **kwargs) -> None:
+        # pass anything we don't recognise further up the MRO (battery kwargs,
+        # in the wireless case) so multiple inheritance keeps working
+        super().__init__(**kwargs)
         if not self._ID_PATTERN.match(sensor_id):
             raise ValueError(
-                f"Invalid sensor_id '{sensor_id}'. "
-                "Must match pattern SN-TTTT-NN (e.g. SN-FLOW-05)."
-            )
+                f"bad sensor_id {sensor_id!r}; expected SN-TTTT-NN, e.g. SN-TEMP-01")
         self._sensor_id = sensor_id
         self.location = location
         self.unit = unit
-        self.safe_min = safe_min
-        self.safe_max = safe_max
+        self.safe_min = float(safe_min)
+        self.safe_max = float(safe_max)
         self._calibration_offset = 0.0
-        # Use the property setter for validation
-        self.calibration_offset = calibration_offset
+        self.calibration_offset = calibration_offset  # run it through the setter
 
     @property
+    @abstractmethod
     def sensor_id(self) -> str:
-        """Return the unique sensor identifier."""
-        return self._sensor_id
+        """Unique id of this sensor (subclasses expose the stored value)."""
+
+    @abstractmethod
+    def read(self) -> SensorReading:
+        """Take one reading and wrap it in a SensorReading."""
 
     @property
     def calibration_offset(self) -> float:
-        """
-        Calibration offset applied to raw readings.
-
-        Must be within ±10% of the sensor's full scale (safe_max - safe_min).
-
-        Raises:
-            CalibrationError: If the offset is outside the allowed range.
-        """
+        """Offset added to every raw reading. Capped at +/-10% of full scale."""
         return self._calibration_offset
 
     @calibration_offset.setter
     def calibration_offset(self, value: float) -> None:
-        full_scale = self.safe_max - self.safe_min
-        limit = 0.1 * full_scale
+        limit = 0.10 * (self.safe_max - self.safe_min)
         if abs(value) > limit:
             raise CalibrationError(
                 self._sensor_id,
-                f"Offset {value} exceeds ±10% of full scale (±{limit:.4f}).",
-            )
-        self._calibration_offset = value
+                f"offset {value} is outside +/-{limit:.3f} (10% of full scale)")
+        self._calibration_offset = float(value)
 
     def calibrate(self, offset: float) -> None:
-        """
-        Set a new calibration offset (delegates to the property for validation).
-
-        Args:
-            offset (float): New calibration offset to apply.
-
-        Raises:
-            CalibrationError: If offset is outside ±10% of full scale.
-        """
+        """Re-calibrate. Goes through the property so the same check applies."""
         self.calibration_offset = offset
 
     def self_test(self) -> bool:
-        """
-        Perform a basic internal consistency check on the sensor.
+        """Quick sanity check. Raises SensorOfflineError if it fails."""
+        limit = 0.10 * (self.safe_max - self.safe_min)
+        if abs(self._calibration_offset) > limit:
+            raise SensorOfflineError(self._sensor_id, "self-test failed: offset drifted")
+        return True
 
-        Returns:
-            bool: True if the sensor passes the internal check.
+    def _simulate_reading(self, spike_probability: float = 0.1) -> SensorReading:
+        """Make up a plausible reading - mostly in range, sometimes over alarm.
 
-        Raises:
-            SensorOfflineError: If the sensor fails the internal check.
+        The occasional spike is what gives the alert logic something to react
+        to during a run. The offset is applied and the result is clamped to
+        the sensor's physical limits.
         """
-        full_scale = self.safe_max - self.safe_min
-        limit = 0.1 * full_scale
-        if abs(self._calibration_offset) <= limit:
-            return True
-        raise SensorOfflineError(
-            self._sensor_id,
-            "Self-test failed: calibration offset out of range.",
-        )
-
-    @abstractmethod
-    def read(self) -> "SensorReading":
-        """
-        Read a current value from the sensor.
-
-        Returns:
-            SensorReading: The latest measurement wrapped in a SensorReading object.
-        """
+        alarm = getattr(self, "ALARM_THRESHOLD", self.safe_max)
+        if random.random() < spike_probability:
+            raw = random.uniform(alarm, self.safe_max)
+        else:
+            raw = random.uniform(self.safe_min, alarm)
+        value = raw + self._calibration_offset
+        value = max(self.safe_min, min(self.safe_max, value))
+        return SensorReading(self.sensor_id, value, self.unit, datetime.now())
 
     def __str__(self) -> str:
-        return (
-            f"{self.__class__.__name__}("
-            f"id={self._sensor_id}, location={self.location}, unit={self.unit})"
-        )
+        return f"{type(self).__name__}[{self.sensor_id}] @ {self.location}"
 
     def __repr__(self) -> str:
-        return (
-            f"{self.__class__.__name__}("
-            f"sensor_id={self._sensor_id!r}, "
-            f"location={self.location!r}, "
-            f"unit={self.unit!r}, "
-            f"safe_min={self.safe_min}, "
-            f"safe_max={self.safe_max}, "
-            f"calibration_offset={self._calibration_offset})"
-        )
+        return (f"{type(self).__name__}(sensor_id={self.sensor_id!r}, "
+                f"location={self.location!r}, calibration_offset={self._calibration_offset!r})")
+
+
+class TemperatureNode(SensorNode):
+    """Industrial temperature probe, -40 to 150 C."""
+
+    ALARM_THRESHOLD = 120.0
+
+    def __init__(self, sensor_id: str, location: str, calibration_offset: float = 0.0) -> None:
+        super().__init__(sensor_id, location, "°C", -40.0, 150.0, calibration_offset)
+
+    @property
+    def sensor_id(self) -> str:
+        return self._sensor_id
+
+    def read(self) -> SensorReading:
+        return self._simulate_reading(spike_probability=0.08)
+
+
+class PressureNode(SensorNode):
+    """Pressure transducer, 0 to 10 bar."""
+
+    ALARM_THRESHOLD = 9.0
+
+    def __init__(self, sensor_id: str, location: str, calibration_offset: float = 0.0) -> None:
+        super().__init__(sensor_id, location, "bar", 0.0, 10.0, calibration_offset)
+
+    @property
+    def sensor_id(self) -> str:
+        return self._sensor_id
+
+    def read(self) -> SensorReading:
+        return self._simulate_reading()
+
+
+class VibrationNode(SensorNode):
+    """Vibration sensor reporting RMS velocity, 0 to 25 mm/s."""
+
+    ALARM_THRESHOLD = 20.0
+
+    def __init__(self, sensor_id: str, location: str, calibration_offset: float = 0.0) -> None:
+        super().__init__(sensor_id, location, "mm/s", 0.0, 25.0, calibration_offset)
+
+    @property
+    def sensor_id(self) -> str:
+        return self._sensor_id
+
+    def read(self) -> SensorReading:
+        return self._simulate_reading()
+
+
+class GasConcentrationNode(SensorNode):
+    """Combustible-gas sensor, 0 to 100% of the lower explosive limit."""
+
+    ALARM_THRESHOLD = 20.0
+
+    def __init__(self, sensor_id: str, location: str, calibration_offset: float = 0.0) -> None:
+        super().__init__(sensor_id, location, "% LEL", 0.0, 100.0, calibration_offset)
+
+    @property
+    def sensor_id(self) -> str:
+        return self._sensor_id
+
+    def read(self) -> SensorReading:
+        return self._simulate_reading()
 
 
 class FlowRateNode(SensorNode):
-    """
-    Concrete sensor node that simulates a flow rate sensor.
+    """Flow meter, 0 to 500 L/min."""
 
-    Produces readings in litres per minute (L/min) within a safe operating
-    range of 0–500 L/min.  Readings occasionally spike above the alarm
-    threshold (450 L/min) so that alert-detection logic can be exercised
-    during simulation runs.
+    ALARM_THRESHOLD = 450.0
 
-    Class constants:
-        ALARM_THRESHOLD (float): Flow rate value above which an alarm should
-            be raised by the AggregationHub / AlertRule layer (450.0 L/min).
+    def __init__(self, sensor_id: str, location: str, calibration_offset: float = 0.0) -> None:
+        super().__init__(sensor_id, location, "L/min", 0.0, 500.0, calibration_offset)
 
-    Sensor-ID type code: ``FLOW``  (e.g. ``SN-FLOW-05``)
-
-    Args:
-        sensor_id (str): Must follow the pattern ``SN-FLOW-NN``.
-        location (str): Physical installation location of the sensor.
-        calibration_offset (float): Initial offset in L/min. Defaults to 0.0.
-
-    Example:
-        >>> node = FlowRateNode("SN-FLOW-01", "Pump Station A")
-        >>> reading = node.read()
-        >>> print(reading.unit)
-        L/min
-    """
-
-    ALARM_THRESHOLD: float = 450.0
-
-    _SAFE_MIN: float = 0.0
-    _SAFE_MAX: float = 500.0
-    _UNIT: str = "L/min"
-
-    # Probability that a simulated reading will spike above ALARM_THRESHOLD
-    _SPIKE_PROBABILITY: float = 0.1
-
-    def __init__(
-        self,
-        sensor_id: str,
-        location: str,
-        calibration_offset: float = 0.0,
-    ) -> None:
-        super().__init__(
-            sensor_id=sensor_id,
-            location=location,
-            unit=self._UNIT,
-            safe_min=self._SAFE_MIN,
-            safe_max=self._SAFE_MAX,
-            calibration_offset=calibration_offset,
-        )
+    @property
+    def sensor_id(self) -> str:
+        return self._sensor_id
 
     def read(self) -> SensorReading:
-        """
-        Simulate a flow rate reading and return it as a SensorReading.
+        return self._simulate_reading()
 
-        With probability ``_SPIKE_PROBABILITY`` the raw value will be drawn
-        from the range (ALARM_THRESHOLD, safe_max] to exercise alert logic.
-        Otherwise the value is drawn uniformly from [safe_min, ALARM_THRESHOLD].
 
-        The calibration offset is added to the raw value before the reading
-        is packaged.  The resulting value is clamped to [safe_min, safe_max]
-        so it never falls outside the physical sensor limits.
+class BatteryPoweredMixin:
+    """Gives a node a battery that drains a bit on every read.
 
-        Returns:
-            SensorReading: A measurement object with unit "L/min" and the
-            current UTC-local timestamp.
-        """
-        if random.random() < self._SPIKE_PROBABILITY:
-            # Simulate an above-threshold spike
-            raw_value = random.uniform(self.ALARM_THRESHOLD + 1.0, self._SAFE_MAX)
-        else:
-            raw_value = random.uniform(self._SAFE_MIN, self.ALARM_THRESHOLD)
+    The __init__ is cooperative: it grabs its own two keyword args and forwards
+    the rest up the chain with super(), so it can sit in a multiple-inheritance
+    line-up without eating the other base's arguments.
+    """
 
-        adjusted_value = raw_value + self._calibration_offset
-        # Clamp to physical limits
-        adjusted_value = max(self._SAFE_MIN, min(self._SAFE_MAX, adjusted_value))
+    def __init__(self, *args, battery_level: float = 100.0,
+                 discharge_per_reading: float = 0.5, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._battery_level = 100.0
+        self.battery_level = float(battery_level)  # validate via the setter
+        self._discharge_per_reading = float(discharge_per_reading)
+        self.pending_alerts = []  # battery alerts wait here until the hub drains them
 
-        return SensorReading(
-            sensor_id=self.sensor_id,
-            value=adjusted_value,
-            unit=self._UNIT,
-            timestamp=datetime.now(),
-        )
+    @property
+    def battery_level(self) -> float:
+        """Charge remaining, 0-100%."""
+        return self._battery_level
+
+    @battery_level.setter
+    def battery_level(self, value: float) -> None:
+        if not 0.0 <= value <= 100.0:
+            raise ValueError(f"battery_level must be between 0 and 100, got {value}")
+        self._battery_level = float(value)
+
+    @property
+    def is_low_battery(self) -> bool:
+        """True once charge drops under 20%."""
+        return self._battery_level < 20.0
+
+    def discharge(self) -> None:
+        """Spend one reading's charge. Queue a LOW alert the moment we go low."""
+        was_low = self.is_low_battery
+        self._battery_level = max(0.0, self._battery_level - self._discharge_per_reading)
+        if self.is_low_battery and not was_low:
+            who = getattr(self, "sensor_id", "UNKNOWN")
+            self.pending_alerts.append(
+                Alert(who, "LOW", f"battery low at {self._battery_level:.1f}%", datetime.now()))
+
+
+class WirelessSensorNode(SensorNode, BatteryPoweredMixin):
+    """A sensor that also runs off a battery.
+
+    MRO: WirelessSensorNode -> SensorNode -> BatteryPoweredMixin -> object, so
+    one super().__init__() runs both parents in turn (cooperative MI).
+    """
+
+    def __init__(self, sensor_id: str, location: str, unit: str,
+                 safe_min: float, safe_max: float, calibration_offset: float = 0.0,
+                 battery_level: float = 100.0, discharge_per_reading: float = 0.5) -> None:
+        super().__init__(sensor_id, location, unit, safe_min, safe_max,
+                         calibration_offset=calibration_offset,
+                         battery_level=battery_level,
+                         discharge_per_reading=discharge_per_reading)
+
+    @property
+    def sensor_id(self) -> str:
+        return self._sensor_id
+
+    def read(self) -> SensorReading:
+        """Read like any node, then drain the battery a little."""
+        reading = self._simulate_reading()
+        self.discharge()
+        return reading
 
     def __str__(self) -> str:
-        return (
-            f"FlowRateNode(id={self.sensor_id}, "
-            f"location={self.location}, "
-            f"offset={self._calibration_offset} {self._UNIT})"
-        )
+        return (f"WirelessSensorNode[{self.sensor_id}] @ {self.location} "
+                f"(battery {self.battery_level:.0f}%)")
 
     def __repr__(self) -> str:
-        return (
-            f"FlowRateNode("
-            f"sensor_id={self.sensor_id!r}, "
-            f"location={self.location!r}, "
-            f"calibration_offset={self._calibration_offset})"
-        )
+        return (f"WirelessSensorNode(sensor_id={self.sensor_id!r}, location={self.location!r}, "
+                f"unit={self.unit!r}, battery_level={self.battery_level!r})")
