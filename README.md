@@ -18,7 +18,7 @@ Repository: https://github.com/ikezuefrank/Embedded-Sensor-Network-Data-Aggregat
 |---|---|---|---|---|
 | 1 | Emans | Gift Oghenemine | CPE/2023/1043 | — |
 | 2 | Emmanuel | Faith Aanuoluwa | CPE/2023/1044 | EmpressFaith |
-| 3 | Esan | Samuel Moyinoluwa | CPE/2023/1045 | — |
+| 3 | Esan | Samuel Moyinoluwa | CPE/2023/1045 | Sunnie360 |
 | 4 | Essien | David Uwem | CPE/2023/1046 | — |
 | 5 | Fakorede | Chinedum Temidayo | CPE/2023/1047 | ⁠⁠fakoredechi-byte |
 | 6 | Falade | Olamide Ebenezer | CPE/2023/1048 | olamidefalade71|
