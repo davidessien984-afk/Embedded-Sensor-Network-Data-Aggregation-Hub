@@ -1,0 +1,205 @@
+@startuml class_diagram
+title Embedded Sensor Network Data Aggregation Hub - Group 4 (CPE 310)
+
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+hide empty members
+
+' ===================== Sensor hierarchy =====================
+abstract class SensorNode {
+  # _sensor_id : str
+  + location : str
+  + unit : str
+  + safe_min : float
+  + safe_max : float
+  # _calibration_offset : float
+  + sensor_id : str <<property, abstract>>
+  + calibration_offset : float <<property>>
+  + {abstract} read() : SensorReading
+  + calibrate(offset : float) : None
+  + self_test() : bool
+  # _simulate_reading(spike_probability : float) : SensorReading
+}
+
+class TemperatureNode {
+  + {static} ALARM_THRESHOLD : float = 120.0
+  + sensor_id : str <<property>>
+  + read() : SensorReading
+}
+class PressureNode {
+  + {static} ALARM_THRESHOLD : float = 9.0
+  + sensor_id : str <<property>>
+  + read() : SensorReading
+}
+class VibrationNode {
+  + {static} ALARM_THRESHOLD : float = 20.0
+  + sensor_id : str <<property>>
+  + read() : SensorReading
+}
+class GasConcentrationNode {
+  + {static} ALARM_THRESHOLD : float = 20.0
+  + sensor_id : str <<property>>
+  + read() : SensorReading
+}
+class FlowRateNode {
+  + {static} ALARM_THRESHOLD : float = 450.0
+  + sensor_id : str <<property>>
+  + read() : SensorReading
+}
+
+class BatteryPoweredMixin {
+  # _battery_level : float
+  # _discharge_per_reading : float
+  + pending_alerts : list<Alert>
+  + battery_level : float <<property>>
+  + is_low_battery : bool <<property>>
+  + discharge() : None
+}
+
+class WirelessSensorNode {
+  + sensor_id : str <<property>>
+  + read() : SensorReading
+}
+
+' ===================== Protocol hierarchy =====================
+abstract class CommunicationProtocol {
+  # _is_connected : bool
+  + is_connected : bool <<property>>
+  + {abstract} connect() : bool
+  + {abstract} send(data : bytes) : bool
+  + {abstract} receive(max_bytes : int) : bytes
+  + {abstract} disconnect() : None
+  # _open(who : str) : bool
+  # _require_connected(who : str, op : str) : None
+}
+class MQTTProtocol {
+  + broker_host : str
+  + port : int
+  + client_id : str
+  + connect() : bool
+  + send(data : bytes) : bool
+  + receive(max_bytes : int) : bytes
+  + disconnect() : None
+}
+class ModbusProtocol {
+  + device_address : int
+  + baud_rate : int
+  + connect() : bool
+  + send(data : bytes) : bool
+  + receive(max_bytes : int) : bytes
+  + disconnect() : None
+}
+class CANBusProtocol {
+  + bus_channel : str
+  + bitrate : int
+  + connect() : bool
+  + send(data : bytes) : bool
+  + receive(max_bytes : int) : bytes
+  + disconnect() : None
+}
+
+' ===================== Value object & alerts =====================
+class SensorReading {
+  + sensor_id : str
+  + value : float
+  + unit : str
+  + timestamp : datetime
+  + setpoint : float
+  + __add__(other) : SensorReading
+  + __radd__(other) : SensorReading
+  + __abs__() : float
+  + __eq__(other) : bool
+  + __lt__(other) : bool
+  + __hash__() : int
+}
+
+class Alert {
+  + {static} SEVERITY_RANK : dict
+  + sensor_id : str
+  + severity : str
+  + message : str
+  + timestamp : datetime
+  + rank : int <<property>>
+  + __lt__(other) : bool
+}
+
+class AlertRule {
+  + sensor_id : str
+  + min_threshold : float
+  + max_threshold : float
+  + check(reading : SensorReading) : Alert
+  # _severity_for(value : float) : str
+}
+
+' ===================== Hub & pipeline =====================
+class AggregationHub {
+  + name : str
+  # _sensors : dict
+  # _rules : list<AlertRule>
+  # _readings : dict
+  # _alerts : list<Alert>
+  + register(sensor : SensorNode) : None
+  + add_alert_rule(rule : AlertRule) : None
+  + poll_all(timestamp) : list<SensorReading>
+  + get_alerts(severity : str) : list<Alert>
+  + summary() : dict
+  + __len__() : int
+  + __contains__(sensor_id : str) : bool
+  + __iter__()
+}
+
+interface Readable <<Protocol>> {
+  + read() : SensorReading
+}
+
+class DataPipeline {
+  + {static} process(source : Readable) : SensorReading
+}
+
+' ===================== Exceptions =====================
+class IOError
+abstract class SensorHubError {
+  + sensor_id : str
+  + detail : str
+  + timestamp : datetime
+}
+class SensorOfflineError
+class CalibrationError
+class CommunicationTimeoutError
+
+' ===================== Relationships =====================
+' Generalization (inheritance)
+SensorNode <|-- TemperatureNode
+SensorNode <|-- PressureNode
+SensorNode <|-- VibrationNode
+SensorNode <|-- GasConcentrationNode
+SensorNode <|-- FlowRateNode
+SensorNode <|-- WirelessSensorNode
+BatteryPoweredMixin <|-- WirelessSensorNode
+CommunicationProtocol <|-- MQTTProtocol
+CommunicationProtocol <|-- ModbusProtocol
+CommunicationProtocol <|-- CANBusProtocol
+IOError <|-- SensorHubError
+SensorHubError <|-- SensorOfflineError
+SensorHubError <|-- CalibrationError
+SensorHubError <|-- CommunicationTimeoutError
+
+' Realization (structural conformance to the Readable protocol)
+Readable <|.. SensorNode
+
+' Composition (the hub owns its sensors and the alerts it raises)
+AggregationHub "1" *-- "0..*" SensorNode : owns
+AggregationHub "1" *-- "0..*" Alert : raises
+
+' Aggregation (rules are created elsewhere and handed in)
+AggregationHub "1" o-- "0..*" AlertRule : applies
+
+' Association (a wireless node holds its queued battery alerts)
+BatteryPoweredMixin "1" -- "0..*" Alert : pending
+
+' Dependency (uses / produces, transient)
+SensorNode ..> "1" SensorReading : produces
+AlertRule ..> "0..1" Alert : creates
+DataPipeline ..> "1" Readable : consumes
+
+@enduml
